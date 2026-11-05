@@ -37,6 +37,25 @@ test("Integration - MCP Server connected to simulated CMZ Backend", async () => 
       const parsedBody = JSON.parse(bodyText);
       receivedGraphQLBody = parsedBody;
 
+      // Handle subscription entitlement check
+      if (parsedBody.query?.includes("entityEntitlements")) {
+        const entityId = parsedBody.variables?.entityId;
+        const packages = entityId === "unpaid_masjid" ? ["cmz_core"] : ["cmz_core", "cmz_community"];
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            data: {
+              entityEntitlements: {
+                packages,
+                features: [],
+              },
+            },
+          })
+        );
+        return;
+      }
+
       if (parsedBody.query?.includes("getTimingsByMasjidId")) {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
@@ -189,7 +208,21 @@ test("Integration - MCP Server connected to simulated CMZ Backend", async () => 
     assert.ok(toolNames.includes("delete_prayer_timings"));
     assert.ok(toolNames.includes("get_calculation_methods"));
 
-    // 6. Test calling get_prayer_timings
+    // 6. Test entitlement gate blocks unpaid entities lacking cmz_community
+    const unpaidCallResult = (await mcpClient.callTool({
+      name: "get_prayer_timings",
+      arguments: {
+        masjidId: "unpaid_masjid",
+        startDate: "2026-08-25",
+        endDate: "2026-08-25",
+      },
+    })) as { isError?: boolean; content: Array<{ type: string; text: string }> };
+
+    assert.ok(unpaidCallResult.isError);
+    assert.match(unpaidCallResult.content[0].text, /SUBSCRIPTION_REQUIRED/);
+    assert.match(unpaidCallResult.content[0].text, /cmz_community/);
+
+    // 7. Test calling get_prayer_timings with entitled masjid
     const getResult = (await mcpClient.callTool({
       name: "get_prayer_timings",
       arguments: {
@@ -205,7 +238,7 @@ test("Integration - MCP Server connected to simulated CMZ Backend", async () => 
     assert.strictEqual(getPayload.schedules[0].prayers[0].prayerName, "Fajr");
     assert.strictEqual(getPayload.schedules[0].prayers[0].azaanTimeFormatted, "05:30 AM");
 
-    // 7. Test calling update_prayer_timings with human time strings
+    // 8. Test calling update_prayer_timings with human time strings
     const updateResult = (await mcpClient.callTool({
       name: "update_prayer_timings",
       arguments: {
@@ -225,7 +258,7 @@ test("Integration - MCP Server connected to simulated CMZ Backend", async () => 
     assert.strictEqual(updatePayload.success, true);
     assert.strictEqual(updatePayload.updatedDaysCount, 1);
 
-    // 8. Test calling delete_prayer_timings
+    // 9. Test calling delete_prayer_timings
     const deleteResult = (await mcpClient.callTool({
       name: "delete_prayer_timings",
       arguments: {
@@ -238,10 +271,11 @@ test("Integration - MCP Server connected to simulated CMZ Backend", async () => 
     const deletePayload = JSON.parse(deleteResult.content[0].text);
     assert.strictEqual(deletePayload.success, true);
 
-    // 9. Test calling get_calculation_methods
+    // 10. Test calling get_calculation_methods
     const methodsResult = (await mcpClient.callTool({
       name: "get_calculation_methods",
       arguments: {
+        masjidId: "masjid_abc",
         latitude: 40.7128,
         longitude: -74.006,
         timezone: "America/New_York",

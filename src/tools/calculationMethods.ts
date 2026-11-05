@@ -2,6 +2,13 @@ import { z } from "zod";
 import { CMZClient, defaultClient } from "../client.js";
 
 export const getCalculationMethodsSchema = {
+  masjidId: z
+    .string()
+    .describe("MongoDB ObjectId of the Masjid (required to verify Community Package subscription)"),
+  entityType: z
+    .enum(["MASJID", "ORGANIZATION", "INDIVIDUAL"])
+    .optional()
+    .describe("Entity type for subscription verification (defaults to 'MASJID')"),
   latitude: z
     .number()
     .default(40.7128)
@@ -32,6 +39,18 @@ export const getCalculationMethodsSchema = {
     .describe("Optional JWT Bearer token override for authentication"),
 };
 
+export interface GetCalculationMethodsArgs {
+  masjidId: string;
+  entityType?: "MASJID" | "ORGANIZATION" | "INDIVIDUAL";
+  latitude: number;
+  longitude: number;
+  timezone: string;
+  date?: string;
+  madhab: "shafi" | "hanafi";
+  highLatitudeRule: "middleOfTheNight" | "seventhOfTheNight" | "twilightAngle";
+  authToken?: string;
+}
+
 interface CalculationMethodResult {
   status: string;
   data: {
@@ -51,9 +70,11 @@ interface CalculationMethodResult {
 }
 
 export async function getCalculationMethodsHandler(
-  args: z.infer<z.ZodObject<typeof getCalculationMethodsSchema>>,
+  args: GetCalculationMethodsArgs,
   client: CMZClient = defaultClient
 ) {
+  await client.requireCommunityPackage(args.masjidId, args.entityType || "MASJID", args.authToken);
+
   const currentDate = args.date || new Date().toISOString().split("T")[0];
 
   const payload = {

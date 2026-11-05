@@ -40,6 +40,10 @@ export const updatePrayerTimingsSchema = {
   masjidId: z
     .string()
     .describe("MongoDB ObjectId of the Masjid (e.g. '64bf1f88e20a32014f3b7a10')"),
+  entityType: z
+    .enum(["MASJID", "ORGANIZATION", "INDIVIDUAL"])
+    .optional()
+    .describe("Entity type for subscription verification (defaults to 'MASJID')"),
   // Single day shorthand
   date: z
     .string()
@@ -67,6 +71,38 @@ export const updatePrayerTimingsSchema = {
     .optional()
     .describe("Optional JWT Bearer token override for authentication"),
 };
+
+export interface UpdatePrayerTimingsArgs {
+  masjidId: string;
+  entityType?: "MASJID" | "ORGANIZATION" | "INDIVIDUAL";
+  date?: string;
+  prayerType?: string;
+  prayerMethod?: string;
+  timings?: Array<{
+    namazName: string;
+    azaanTime: string | number;
+    jamaatTime: string | number;
+    offset?: { iqamah?: number; azaan?: number };
+    iqamahType?: string;
+    azaanType?: string;
+    isAutomaticIqama?: boolean;
+  }>;
+  days?: Array<{
+    date: string;
+    prayerType?: string;
+    prayerMethod?: string;
+    timings: Array<{
+      namazName: string;
+      azaanTime: string | number;
+      jamaatTime: string | number;
+      offset?: { iqamah?: number; azaan?: number };
+      iqamahType?: string;
+      azaanType?: string;
+      isAutomaticIqama?: boolean;
+    }>;
+  }>;
+  authToken?: string;
+}
 
 const UPDATE_TIMINGS_MUTATION = `
   mutation CreateOrUpdateTimings($masjidId: String!, $timings: [MasjidTimingInput!]!) {
@@ -110,13 +146,22 @@ interface UpdateTimingsMutationResult {
 }
 
 export async function updatePrayerTimingsHandler(
-  args: z.infer<z.ZodObject<typeof updatePrayerTimingsSchema>>,
+  args: UpdatePrayerTimingsArgs,
   client: CMZClient = defaultClient
 ) {
+  await client.requireCommunityPackage(args.masjidId, args.entityType || "MASJID", args.authToken);
+
   const daysToProcess: Array<z.infer<typeof dayScheduleInputSchema>> = [];
 
   if (args.days && args.days.length > 0) {
-    daysToProcess.push(...args.days);
+    daysToProcess.push(
+      ...args.days.map((d) => ({
+        date: d.date,
+        prayerType: d.prayerType || "DAILY",
+        prayerMethod: d.prayerMethod || "ISNA",
+        timings: d.timings,
+      }))
+    );
   } else if (args.date && args.timings && args.timings.length > 0) {
     daysToProcess.push({
       date: args.date,

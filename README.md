@@ -2,6 +2,15 @@
 
 Standalone Model Context Protocol (MCP) server for ConnectMasjid (`cmz-backend`).
 
+## Subscription Requirement
+
+**MCP access is restricted to paid users with the Community Package (`cmz_community`).**
+
+Each tool invocation validates the target entity's active subscription entitlements via `cmz-backend` (`entityEntitlements`). If the entity is on the free tier (`cmz_core`) or lacks an active `cmz_community` package, the tool immediately returns:
+```
+SUBSCRIPTION_REQUIRED: MCP access is restricted to paid users with an active CMZ Community Package (cmz_community).
+```
+
 ## Capabilities
 
 The server currently provides prayer timing and schedule tools via MCP:

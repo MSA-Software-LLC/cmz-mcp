@@ -5,6 +5,10 @@ export const deletePrayerTimingsSchema = {
   masjidId: z
     .string()
     .describe("MongoDB ObjectId of the Masjid (e.g. '64bf1f88e20a32014f3b7a10')"),
+  entityType: z
+    .enum(["MASJID", "ORGANIZATION", "INDIVIDUAL"])
+    .optional()
+    .describe("Entity type for subscription verification (defaults to 'MASJID')"),
   startDate: z
     .string()
     .describe("Start date of range to delete in YYYY-MM-DD format (inclusive)"),
@@ -17,6 +21,14 @@ export const deletePrayerTimingsSchema = {
     .describe("Optional JWT Bearer token override for authentication"),
 };
 
+export interface DeletePrayerTimingsArgs {
+  masjidId: string;
+  entityType?: "MASJID" | "ORGANIZATION" | "INDIVIDUAL";
+  startDate: string;
+  endDate: string;
+  authToken?: string;
+}
+
 const DELETE_TIMINGS_MUTATION = `
   mutation DeleteTimings($masjidId: String!, $startDate: String!, $endDate: String!) {
     deleteTimings(masjidId: $masjidId, startDate: $startDate, endDate: $endDate)
@@ -28,9 +40,11 @@ interface DeleteTimingsMutationResult {
 }
 
 export async function deletePrayerTimingsHandler(
-  args: z.infer<z.ZodObject<typeof deletePrayerTimingsSchema>>,
+  args: DeletePrayerTimingsArgs,
   client: CMZClient = defaultClient
 ) {
+  await client.requireCommunityPackage(args.masjidId, args.entityType || "MASJID", args.authToken);
+
   const result = await client.graphql<DeleteTimingsMutationResult>(
     DELETE_TIMINGS_MUTATION,
     {

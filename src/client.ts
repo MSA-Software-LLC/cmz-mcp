@@ -12,6 +12,30 @@ export interface GraphQLResponse<T> {
   }>;
 }
 
+export const COMMUNITY_PACKAGE_ID = "cmz_community";
+
+export interface EntityEntitlements {
+  packages: string[];
+  features: Array<{
+    key: string;
+    granted: boolean;
+    requiredPackage?: string;
+  }>;
+}
+
+const ENTITY_ENTITLEMENTS_QUERY = `
+  query CheckEntityEntitlements($entityId: String!, $entityType: String!) {
+    entityEntitlements(entityId: $entityId, entityType: $entityType) {
+      packages
+      features {
+        key
+        granted
+        requiredPackage
+      }
+    }
+  }
+`;
+
 export class CMZClient {
   private baseUrl: string;
   private defaultToken?: string;
@@ -119,6 +143,41 @@ export class CMZClient {
       return (await response.json()) as T;
     }
     return (await response.text()) as unknown as T;
+  }
+
+  /**
+   * Verifies that the target entity has an active Community Package (`cmz_community`) subscription.
+   * Throws a SUBSCRIPTION_REQUIRED error if the entity is only on the free core tier or lacks `cmz_community`.
+   */
+  async requireCommunityPackage(
+    entityId: string,
+    entityType: string = "MASJID",
+    authTokenOverride?: string
+  ): Promise<EntityEntitlements> {
+    if (!entityId || entityId.trim() === "") {
+      throw new Error("entityId (masjidId) is required to verify Community Package subscription.");
+    }
+
+    const data = await this.graphql<{ entityEntitlements: EntityEntitlements }>(
+      ENTITY_ENTITLEMENTS_QUERY,
+      {
+        entityId,
+        entityType: entityType.toUpperCase(),
+      },
+      authTokenOverride
+    );
+
+    const entitlements = data.entityEntitlements;
+    const activePackages = entitlements?.packages || [];
+
+    if (!activePackages.includes(COMMUNITY_PACKAGE_ID)) {
+      throw new Error(
+        `SUBSCRIPTION_REQUIRED: MCP access is restricted to paid users with an active CMZ Community Package (${COMMUNITY_PACKAGE_ID}). ` +
+          `Entity '${entityId}' currently has packages: [${activePackages.join(", ") || "none"}]. Please upgrade to the Community Package to use MCP tools.`
+      );
+    }
+
+    return entitlements;
   }
 }
 

@@ -4,6 +4,13 @@ import path from "node:path";
 import { CMZClient, defaultClient } from "../client.js";
 
 export const extractTimingsFromFileSchema = {
+  masjidId: z
+    .string()
+    .describe("MongoDB ObjectId of the Masjid (required to verify Community Package subscription)"),
+  entityType: z
+    .enum(["MASJID", "ORGANIZATION", "INDIVIDUAL"])
+    .optional()
+    .describe("Entity type for subscription verification (defaults to 'MASJID')"),
   filePath: z
     .string()
     .describe("Absolute or relative path to a local timetable file (PDF, PNG, JPG, CSV, Excel, DOCX)"),
@@ -12,6 +19,13 @@ export const extractTimingsFromFileSchema = {
     .optional()
     .describe("Optional JWT Bearer token override for authentication"),
 };
+
+export interface ExtractTimingsFromFileArgs {
+  masjidId: string;
+  entityType?: "MASJID" | "ORGANIZATION" | "INDIVIDUAL";
+  filePath: string;
+  authToken?: string;
+}
 
 interface ExtractedTimingResult {
   regularTimings?: Array<{
@@ -32,9 +46,11 @@ interface ExtractedTimingResult {
 }
 
 export async function extractTimingsFromFileHandler(
-  args: z.infer<z.ZodObject<typeof extractTimingsFromFileSchema>>,
+  args: ExtractTimingsFromFileArgs,
   client: CMZClient = defaultClient
 ) {
+  await client.requireCommunityPackage(args.masjidId, args.entityType || "MASJID", args.authToken);
+
   const resolvedPath = path.resolve(args.filePath);
 
   let fileBuffer: Buffer;

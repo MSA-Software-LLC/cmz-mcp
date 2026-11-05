@@ -6,6 +6,10 @@ export const getPrayerTimingsSchema = {
   masjidId: z
     .string()
     .describe("MongoDB ObjectId of the Masjid (e.g. '64bf1f88e20a32014f3b7a10')"),
+  entityType: z
+    .enum(["MASJID", "ORGANIZATION", "INDIVIDUAL"])
+    .optional()
+    .describe("Entity type for subscription verification (defaults to 'MASJID')"),
   startDate: z
     .string()
     .describe("Start date for the query in YYYY-MM-DD format (e.g. '2026-08-25')"),
@@ -17,6 +21,14 @@ export const getPrayerTimingsSchema = {
     .optional()
     .describe("Optional JWT Bearer token override for authentication"),
 };
+
+export interface GetPrayerTimingsArgs {
+  masjidId: string;
+  entityType?: "MASJID" | "ORGANIZATION" | "INDIVIDUAL";
+  startDate: string;
+  endDate: string;
+  authToken?: string;
+}
 
 interface RawTimingItem {
   _id: string;
@@ -77,9 +89,11 @@ const GET_TIMINGS_QUERY = `
 `;
 
 export async function getPrayerTimingsHandler(
-  args: z.infer<z.ZodObject<typeof getPrayerTimingsSchema>>,
+  args: GetPrayerTimingsArgs,
   client: CMZClient = defaultClient
 ) {
+  await client.requireCommunityPackage(args.masjidId, args.entityType || "MASJID", args.authToken);
+
   const result = await client.graphql<GetTimingsQueryResult>(
     GET_TIMINGS_QUERY,
     {

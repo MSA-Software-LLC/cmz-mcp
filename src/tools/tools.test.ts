@@ -18,6 +18,7 @@ class MockCMZClient extends CMZClient {
   public lastRestPath: string = "";
   public lastRestOptions: RequestInit | undefined;
 
+  public mockPackages: string[] = ["cmz_core", "cmz_community"];
   public mockGraphqlResponse: unknown = {};
   public mockRestResponse: unknown = {};
 
@@ -32,6 +33,16 @@ class MockCMZClient extends CMZClient {
   ): Promise<T> {
     this.lastGraphqlQuery = query;
     this.lastGraphqlVariables = variables || {};
+
+    if (query.includes("entityEntitlements")) {
+      return {
+        entityEntitlements: {
+          packages: this.mockPackages,
+          features: [],
+        },
+      } as T;
+    }
+
     return this.mockGraphqlResponse as T;
   }
 
@@ -46,7 +57,30 @@ class MockCMZClient extends CMZClient {
   }
 }
 
-test("MCP Tool - get_prayer_timings", async () => {
+test("MCP Tool - subscription entitlement gate", async () => {
+  const mockClient = new MockCMZClient();
+  mockClient.mockPackages = ["cmz_core"]; // Free tier only, no Community Package
+
+  await assert.rejects(
+    async () => {
+      await getPrayerTimingsHandler(
+        {
+          masjidId: "unpaid_masjid_123",
+          startDate: "2026-08-25",
+          endDate: "2026-08-25",
+        },
+        mockClient
+      );
+    },
+    (err: Error) => {
+      assert.match(err.message, /SUBSCRIPTION_REQUIRED/);
+      assert.match(err.message, /cmz_community/);
+      return true;
+    }
+  );
+});
+
+test("MCP Tool - get_prayer_timings with community package", async () => {
   const mockClient = new MockCMZClient();
   mockClient.mockGraphqlResponse = {
     getTimingsByMasjidId: [
@@ -244,6 +278,7 @@ test("MCP Tool - get_calculation_methods", async () => {
 
   const response = await getCalculationMethodsHandler(
     {
+      masjidId: "masjid_123",
       latitude: 40.7128,
       longitude: -74.006,
       timezone: "America/New_York",
@@ -282,6 +317,7 @@ test("MCP Tool - extract_timings_from_file", async () => {
   try {
     const response = await extractTimingsFromFileHandler(
       {
+        masjidId: "masjid_123",
         filePath: tempFile,
       },
       mockClient
