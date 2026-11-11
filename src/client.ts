@@ -1,7 +1,26 @@
 import dotenv from "dotenv";
+import { getValidAccessToken, saveStoredTokens } from "./auth/store.js";
+import { startOAuthFlow } from "./auth/oauth.js";
 
 // Load environment variables from .env if present
 dotenv.config();
+
+export const PROD_BACKEND_URL = "https://rest.cmzapp.com";
+export const STAGING_BACKEND_URL = "https://rest.staging.cmzapp.com";
+
+export function resolveDefaultBackendUrl(): string {
+  if (process.env.CMZ_BACKEND_URL) {
+    return process.env.CMZ_BACKEND_URL;
+  }
+  const env = (process.env.CMZ_ENV || "").toLowerCase();
+  if (env === "production" || env === "prod") {
+    return PROD_BACKEND_URL;
+  }
+  if (env === "staging") {
+    return STAGING_BACKEND_URL;
+  }
+  return "http://localhost:8080";
+}
 
 export interface GraphQLResponse<T> {
   data?: T;
@@ -41,8 +60,36 @@ export class CMZClient {
   private defaultToken?: string;
 
   constructor(baseUrl?: string, defaultToken?: string) {
-    this.baseUrl = (baseUrl || process.env.CMZ_BACKEND_URL || "http://localhost:8080").replace(/\/+$/, "");
+    this.baseUrl = (baseUrl || resolveDefaultBackendUrl()).replace(/\/+$/, "");
     this.defaultToken = defaultToken || process.env.CMZ_AUTH_TOKEN;
+  }
+
+  /**
+   * Resolves the active Bearer token from override, explicit config, or local OAuth store (~/.cmz/auth.json).
+   */
+  async resolveToken(authTokenOverride?: string): Promise<string | undefined> {
+    if (authTokenOverride) {
+      return authTokenOverride;
+    }
+    if (this.defaultToken) {
+      return this.defaultToken;
+    }
+    const token = await getValidAccessToken(this.baseUrl);
+    if (token) {
+      return token;
+    }
+    return undefined;
+  }
+
+  /**
+   * Launches real-time browser OAuth flow with PKCE, captures callback,
+   * saves tokens to ~/.cmz/auth.json, and returns the access token.
+   */
+  async authorizeInteractive(): Promise<string> {
+    const tokens = await startOAuthFlow(this.baseUrl);
+    await saveStoredTokens(tokens);
+    this.defaultToken = tokens.accessToken;
+    return tokens.accessToken;
   }
 
   /**
@@ -63,7 +110,18 @@ export class CMZClient {
     variables?: Record<string, unknown>,
     authTokenOverride?: string
   ): Promise<T> {
-    const token = authTokenOverride || this.defaultToken;
+    let token = await this.resolveToken(authTokenOverride);
+
+    // If still no token and not in test environment, initiate interactive browser OAuth
+    if (!token && process.env.NODE_ENV !== "test" && !process.env.CI) {
+      try {
+        console.error("No authentication token found. Initiating real-time browser authorization...");
+        token = await this.authorizeInteractive();
+      } catch (authErr) {
+        console.error("Browser authorization failed:", authErr);
+      }
+    }
+
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "X-Requested-With": "XMLHttpRequest",
@@ -114,7 +172,7 @@ export class CMZClient {
     init?: RequestInit,
     authTokenOverride?: string
   ): Promise<T> {
-    const token = authTokenOverride || this.defaultToken;
+    const token = await this.resolveToken(authTokenOverride);
     const url = `${this.baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
 
     const headers = new Headers(init?.headers || {});

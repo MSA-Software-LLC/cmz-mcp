@@ -15,6 +15,10 @@ import {
   getCalculationMethodsHandler,
   extractTimingsFromFileSchema,
   extractTimingsFromFileHandler,
+  cmzAuthorizeSchema,
+  cmzAuthorizeHandler,
+  cmzLogoutSchema,
+  cmzLogoutHandler,
 } from "./tools/index.js";
 
 // Load environment variables
@@ -72,6 +76,26 @@ server.tool(
   extractTimingsFromFileSchema,
   async (args) => {
     return await extractTimingsFromFileHandler(args);
+  }
+);
+
+// 6. ConnectMasjid interactive browser authorization
+server.tool(
+  "cmz_authorize",
+  "Launch real-time browser OAuth authentication to connect to ConnectMasjid without manually entering tokens.",
+  cmzAuthorizeSchema,
+  async (args) => {
+    return await cmzAuthorizeHandler(args);
+  }
+);
+
+// 7. ConnectMasjid logout tool
+server.tool(
+  "cmz_logout",
+  "Log out from ConnectMasjid and clear locally stored authentication credentials.",
+  cmzLogoutSchema,
+  async (args) => {
+    return await cmzLogoutHandler(args);
   }
 );
 
